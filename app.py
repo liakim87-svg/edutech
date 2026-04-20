@@ -36,7 +36,10 @@ def send_notification(title, message):
 # 데이터 로드/저장 함수
 def load_data():
     if os.path.exists(DB_FILE):
-        return pd.read_csv(DB_FILE)
+        try:
+            return pd.read_csv(DB_FILE)
+        except:
+            return pd.DataFrame(columns=["날짜", "학반", "유형", "기기번호", "작성자", "내용"])
     return pd.DataFrame(columns=["날짜", "학반", "유형", "기기번호", "작성자", "내용"])
 
 def save_data(df):
@@ -54,6 +57,7 @@ if st.sidebar.button("🔔 알림 권한 허용하기"):
     <script>
         Notification.requestPermission().then(p => {
             if(p==='granted') alert('알림 권한이 허용되었습니다!');
+            else alert('알림 권한이 거부되었거나 차단되었습니다. 브라우저 설정을 확인해주세요.');
         });
     </script>
     """, height=0)
@@ -77,13 +81,12 @@ if menu == "🏠 메인 화면":
             else:
                 st.warning(f"**{cls}**\n\n미완료")
                 if st.button(f"확인", key=f"chk_{cls}"):
-                    name = st.text_input("성함", key=f"nm_{cls}")
-                    if name:
-                        new_row = {"날짜": datetime.now().strftime("%Y-%m-%d %H:%M"), "학반": cls, "유형": "정기점검", "기기번호": "-", "작성자": name, "내용": "이상 없음"}
-                        df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-                        save_data(df)
-                        send_notification("✅ 점검 완료", f"{cls}반 점검이 완료되었습니다.")
-                        st.rerun()
+                    name = "담당자" # 기본값 설정
+                    new_row = {"날짜": datetime.now().strftime("%Y-%m-%d %H:%M"), "학반": cls, "유형": "정기점검", "기기번호": "-", "작성자": name, "내용": "이상 없음"}
+                    df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+                    save_data(df)
+                    send_notification("✅ 점검 완료", f"{cls}반 점검이 완료되었습니다.")
+                    st.rerun()
 
 elif menu == "🚨 고장 신고":
     st.subheader("🚨 기기 고장 리포트")
@@ -109,20 +112,3 @@ elif menu == "🚨 고장 신고":
 elif menu == "📊 누적 기록":
     st.subheader("📊 전체 관리 기록")
     st.dataframe(df.sort_values("날짜", ascending=False), use_container_width=True)
-```
-
----
-
-### 2. 사용 전 주의사항 (필독!)
-
-1.  **알림 권한 허용**: 앱을 처음 실행하면 사이드바에 있는 **[🔔 알림 권한 허용하기]** 버튼을 꼭 눌러주세요. 브라우저에서 알림 허용 여부를 물으면 '허용'을 클릭해야 합니다.
-2.  **창을 열어두어야 함**: 브라우저 알림은 **해당 웹사이트가 크롬 탭에 열려 있을 때만** 작동합니다. (창을 닫으면 알림이 오지 않아요.)
-3.  **방해 금지 모드**: 윈도우나 맥의 '방해 금지 모드' 또는 '집중 모드'가 켜져 있으면 알림 소리나 팝업이 뜨지 않을 수 있습니다.
-
-
-
-### 3. `requirements.txt` 확인
-이 코드를 쓰려면 `requirements.txt`에 한 줄이 더 추가되어야 합니다. (아래 내용으로 바꾸세요)
-```text
-streamlit
-pandas
