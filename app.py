@@ -1,126 +1,332 @@
-import streamlit as st
-import pandas as pd
-import plotly.express as px
-import datetime
+import React, { useState, useMemo } from 'react';
+import { 
+  LayoutDashboard, 
+  ClipboardCheck, 
+  AlertTriangle, 
+  Search, 
+  Save, 
+  CheckCircle2, 
+  Monitor, 
+  Users,
+  Settings
+} from 'lucide-react';
+import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend } from 'recharts';
 
-# 1. 페이지 설정 및 초기 데이터 구성
-st.set_page_config(page_title="크롬북 스마트 관리 대장", layout="wide")
+const App = () => {
+  // Initial Data Setup
+  const initialData = useMemo(() => {
+    const data = [];
+    for (let b = 1; b <= 3; b++) {
+      for (let s = 1; s <= 20; s++) {
+        const id = `1${b}${String(s).padStart(2, '0')}`;
+        data.push({
+          id: id,
+          name: `Student ${id}`,
+          class: `${b}nd Class`,
+          status: 'Stored',
+          detail: '',
+          lastUpdated: new Date().toLocaleTimeString()
+        });
+      }
+    }
+    return data;
+  }, []);
 
-# 앱 실행 시 세션 상태에 데이터 저장 (실제 서비스 시에는 DB나 Google Sheets 연동)
-if 'chromebook_data' not in st.session_state:
-    # 초기 샘플 데이터 생성
-    initial_data = []
-    # 1반부터 5반까지 샘플 학생 생성
-    for class_num in range(1, 6):
-        for student_num in range(1, 21):
-            student_id = f"1{class_num:01d}{student_num:02d}"
-            initial_data.append({
-                "학번": student_id,
-                "이름": f"학생{student_id}",
-                "반": f"{class_num}반",
-                "상태": "보관 중",
-                "이상유무": "정상",
-                "상세내용": "",
-                "업데이트시간": datetime.datetime.now().strftime("%H:%M")
-            })
-    st.session_state.chromebook_data = pd.DataFrame(initial_data)
+  const [chromebooks, setChromebooks] = useState(initialData);
+  const [selectedClass, setSelectedClass] = useState('1nd Class');
+  const [selectedStudent, setSelectedStudent] = useState(initialData[0].id);
+  const [statusInput, setStatusInput] = useState('Stored');
+  const [detailInput, setDetailInput] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showToast, setShowToast] = useState(false);
 
-df = st.session_state.chromebook_data
-
-# --- 사이드바: 도우미 입력 메뉴 ---
-with st.sidebar:
-    st.header("🛠️ 도우미 입력 메뉴")
-    st.info("자기 반을 선택하고 점검 내용을 입력하세요.")
+  // Statistics Calculation
+  const stats = useMemo(() => {
+    const total = chromebooks.length;
+    const stored = chromebooks.filter(c => c.status === 'Stored').length;
+    const rented = chromebooks.filter(c => c.status === 'Rented').length;
+    const issue = chromebooks.filter(c => c.status === 'Missing' || c.status === 'Broken').length;
     
-    with st.form("input_form"):
-        target_class = st.selectbox("우리 반 선택", options=sorted(df['반'].unique()))
-        
-        # 선택한 반의 학생들만 필터링
-        class_students = df[df['반'] == target_class]
-        target_student_id = st.selectbox("학생 선택 (학번)", options=class_students['학번'].tolist())
-        
-        new_status = st.radio("기기 상태", ["보관 중", "대여 중", "미반납"])
-        new_issue = st.radio("이상 유무", ["정상", "이상 있음 (고장)"])
-        issue_detail = st.text_input("고장 사유/비고", placeholder="예: 액정 파손, 충전 안됨")
-        
-        submit_button = st.form_submit_button("상태 업데이트")
-        
-        if submit_button:
-            # 데이터 업데이트 로직
-            idx = df[df['학번'] == target_student_id].index[0]
-            df.at[idx, '상태'] = new_status
-            df.at[idx, '이상유무'] = new_issue
-            df.at[idx, '상세내용'] = issue_detail
-            df.at[idx, '업데이트시간'] = datetime.datetime.now().strftime("%H:%M")
-            st.session_state.chromebook_data = df
-            st.success(f"{target_student_id} 업데이트 완료!")
+    const statusData = [
+      { name: 'Stored', value: stored, color: '#10b981' },
+      { name: 'Rented', value: rented, color: '#3b82f6' },
+      { name: 'Missing', value: chromebooks.filter(c => c.status === 'Missing').length, color: '#ef4444' },
+      { name: 'Broken', value: chromebooks.filter(c => c.status === 'Broken').length, color: '#f59e0b' },
+    ];
 
-    st.divider()
-    st.caption("2026 Smart Chromebook Management System v1.0")
+    const classData = ['1nd Class', '2nd Class', '3nd Class'].map(cls => ({
+      name: cls,
+      rate: Math.round((chromebooks.filter(c => c.class === cls && c.status === 'Stored').length / 20) * 100)
+    }));
 
-# --- 메인 화면: 시각화 대시보드 ---
-st.title("📊 크롬북 통합 관리 현황판")
+    return { total, stored, rented, issue, statusData, classData };
+  }, [chromebooks]);
 
-# 2. 알림 섹션 (이상이 있거나 미반납인 경우 상단 노출)
-critical_df = df[(df['이상유무'] == "이상 있음 (고장)") | (df['상태'] == "미반납")]
-if not critical_df.empty:
-    st.warning(f"🚨 주의 필요 항목: {len(critical_df)}건 (고장 또는 미반납)")
-    with st.expander("세부 내역 보기"):
-        st.table(critical_df[['학번', '이름', '상태', '이상유무', '상세내용']])
+  // Actions
+  const handleUpdate = () => {
+    setChromebooks(prev => prev.map(c => 
+      c.id === selectedStudent 
+        ? { ...c, status: statusInput, detail: detailInput, lastUpdated: new Date().toLocaleTimeString() }
+        : c
+    ));
+    setShowToast(true);
+    setTimeout(() => setShowToast(false), 2000);
+  };
 
-# 3. 최상단 핵심 지표 (Metrics)
-m_col1, m_col2, m_col3, m_col4 = st.columns(4)
-with m_col1:
-    st.metric("전체 기기", len(df))
-with m_col2:
-    st.metric("보관 중", len(df[df['상태'] == "보관 중"]))
-with m_col3:
-    st.metric("대여 중", len(df[df['상태'] == "대여 중"]), delta=len(df[df['상태'] == "미반납"]), delta_color="inverse")
-with m_col4:
-    st.metric("수리 필요", len(df[df['이상유무'] == "이상 있음 (고장)"]), delta_color="off")
+  const filteredList = chromebooks.filter(c => 
+    c.id.includes(searchTerm) || c.name.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
-st.divider()
+  return (
+    <div className="flex h-screen bg-slate-50 font-sans text-slate-900">
+      {/* Sidebar - Assistant Input Area */}
+      <aside className="w-80 bg-white border-r border-slate-200 p-6 flex flex-col shadow-sm">
+        <div className="flex items-center gap-3 mb-8">
+          <div className="bg-blue-600 p-2 rounded-lg text-white">
+            <Monitor size={24} />
+          </div>
+          <h1 className="text-xl font-bold tracking-tight">Admin Menu</h1>
+        </div>
 
-# 4. 차트 시각화 영역
-chart_col1, chart_col2 = st.columns([1, 1])
+        <div className="space-y-6 flex-1">
+          <section>
+            <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">Class Selection</label>
+            <select 
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+              value={selectedClass}
+              onChange={(e) => {
+                const newClass = e.target.value;
+                setSelectedClass(newClass);
+                setSelectedStudent(chromebooks.find(c => c.class === newClass).id);
+              }}
+            >
+              <option value="1nd Class">1st Grade - Class 1</option>
+              <option value="2nd Class">1st Grade - Class 2</option>
+              <option value="3nd Class">1st Grade - Class 3</option>
+            </select>
+          </section>
 
-with chart_col1:
-    st.subheader("📍 기기 보관 상태 비율")
-    fig_pie = px.pie(df, names='상태', color='상태',
-                 color_discrete_map={'보관 중':'#2ecc71', '대여 중':'#3498db', '미반납':'#e74c3c'},
-                 hole=0.4)
-    st.plotly_chart(fig_pie, use_container_width=True)
+          <section>
+            <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">Student Name</label>
+            <select 
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+              value={selectedStudent}
+              onChange={(e) => setSelectedStudent(e.target.value)}
+            >
+              {chromebooks.filter(c => c.class === selectedClass).map(c => (
+                <option key={c.id} value={c.id}>{c.id} {c.name}</option>
+              ))}
+            </select>
+          </section>
 
-with chart_col2:
-    st.subheader("🏫 반별 점검 진행률 (보관 비율)")
-    # 반별로 보관 중인 비율 계산
-    class_stats = df.groupby('반')['상태'].apply(lambda x: (x == '보관 중').mean() * 100).reset_index()
-    class_stats.columns = ['반', '보관율']
-    fig_bar = px.bar(class_stats, x='반', y='보관율', 
-                     range_y=[0, 100],
-                     labels={'보관율': '보관 완료 (%)'},
-                     color='보관율', color_continuous_scale='RdYlGn')
-    st.plotly_chart(fig_bar, use_container_width=True)
+          <section>
+            <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">Device Status</label>
+            <div className="grid grid-cols-2 gap-2">
+              {['Stored', 'Rented', 'Missing', 'Broken'].map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setStatusInput(s)}
+                  className={`py-2 px-3 rounded-lg text-sm font-medium transition-all border ${
+                    statusInput === s 
+                    ? 'bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-100' 
+                    : 'bg-white border-slate-200 text-slate-600 hover:border-blue-300'
+                  }`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </section>
 
-# 5. 하단 상세 테이블 (필터 기능 포함)
-st.divider()
-st.subheader("📑 실시간 전체 명단")
-search_query = st.text_input("🔍 이름 또는 학번으로 검색")
+          <section>
+            <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">Issue Details</label>
+            <textarea 
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 h-24 resize-none outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+              placeholder="Enter details if any..."
+              value={detailInput}
+              onChange={(e) => setDetailInput(e.target.value)}
+            />
+          </section>
 
-if search_query:
-    filtered_df = df[df['이름'].str.contains(search_query) | df['학번'].str.contains(search_query)]
-else:
-    filtered_df = df
+          <button 
+            onClick={handleUpdate}
+            className="w-full bg-slate-900 text-white font-bold py-4 rounded-xl hover:bg-slate-800 transition-all flex items-center justify-center gap-2 shadow-lg shadow-slate-200 active:scale-95"
+          >
+            <Save size={18} />
+            Update Status
+          </button>
+        </div>
 
-# 가독성을 위해 스타일링 적용
-def style_status(val):
-    if val == "이상 있음 (고장)": return "background-color: #ffcccc"
-    if val == "미반납": return "background-color: #ffe5cc"
-    if val == "대여 중": return "color: #3498db"
-    return ""
+        {showToast && (
+          <div className="mt-4 bg-green-500 text-white p-3 rounded-lg flex items-center gap-2 animate-bounce">
+            <CheckCircle2 size={18} />
+            <span className="text-sm font-bold">Successfully Updated!</span>
+          </div>
+        )}
+      </aside>
 
-st.dataframe(
-    filtered_df.style.applymap(style_status, subset=['상태', '이상유무']),
-    use_container_width=True,
-    hide_index=True
-)
+      {/* Main Content - Dashboard */}
+      <main className="flex-1 overflow-y-auto p-10">
+        <header className="flex justify-between items-end mb-10">
+          <div>
+            <div className="flex items-center gap-2 text-blue-600 font-bold mb-1">
+              <LayoutDashboard size={18} />
+              <span className="text-sm uppercase tracking-widest">Management Dashboard</span>
+            </div>
+            <h2 className="text-3xl font-extrabold text-slate-900">Chromebook Status</h2>
+          </div>
+          <div className="flex gap-4">
+            <div className="bg-white p-3 px-5 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
+              <div className="text-right">
+                <p className="text-xs font-bold text-slate-400">Total Devices</p>
+                <p className="text-xl font-black text-slate-900">{stats.total}</p>
+              </div>
+              <Monitor className="text-slate-300" size={32} />
+            </div>
+          </div>
+        </header>
+
+        {/* Metrics Cards */}
+        <div className="grid grid-cols-3 gap-6 mb-10">
+          <div className="bg-emerald-500 p-6 rounded-3xl text-white shadow-lg shadow-emerald-100 flex justify-between items-start">
+            <div>
+              <p className="font-bold opacity-80 mb-1">Stored Safely</p>
+              <h3 className="text-4xl font-black">{stats.stored}</h3>
+            </div>
+            <div className="bg-white/20 p-2 rounded-xl">
+              <CheckCircle2 size={24} />
+            </div>
+          </div>
+          <div className="bg-blue-500 p-6 rounded-3xl text-white shadow-lg shadow-blue-100 flex justify-between items-start">
+            <div>
+              <p className="font-bold opacity-80 mb-1">Currently Rented</p>
+              <h3 className="text-4xl font-black">{stats.rented}</h3>
+            </div>
+            <div className="bg-white/20 p-2 rounded-xl">
+              <ClipboardCheck size={24} />
+            </div>
+          </div>
+          <div className="bg-red-500 p-6 rounded-3xl text-white shadow-lg shadow-red-100 flex justify-between items-start">
+            <div>
+              <p className="font-bold opacity-80 mb-1">Issues Reported</p>
+              <h3 className="text-4xl font-black">{stats.issue}</h3>
+            </div>
+            <div className="bg-white/20 p-2 rounded-xl">
+              <AlertTriangle size={24} />
+            </div>
+          </div>
+        </div>
+
+        {/* Charts Section */}
+        <div className="grid grid-cols-2 gap-8 mb-10">
+          <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm">
+            <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
+              <div className="w-2 h-2 bg-blue-500 rounded-full" />
+              Real-time Status Distribution
+            </h3>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={stats.statusData}
+                    innerRadius={60}
+                    outerRadius={80}
+                    paddingAngle={5}
+                    dataKey="value"
+                  >
+                    {stats.statusData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                  <Legend verticalAlign="bottom" height={36}/>
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+          <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm">
+            <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
+              <div className="w-2 h-2 bg-indigo-500 rounded-full" />
+              Return Rate by Class (%)
+            </h3>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={stats.classData}>
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} />
+                  <YAxis hide domain={[0, 100]} />
+                  <Tooltip cursor={{fill: 'transparent'}} />
+                  <Bar dataKey="rate" fill="#6366f1" radius={[10, 10, 10, 10]} barSize={40} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+
+        {/* Search and Table */}
+        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+          <div className="p-6 border-b border-slate-50 flex justify-between items-center bg-slate-50/50">
+            <div className="flex items-center gap-2">
+              <Users size={20} className="text-slate-400" />
+              <h3 className="font-bold text-slate-800">Complete Inventory List</h3>
+            </div>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+              <input 
+                type="text" 
+                placeholder="Search student ID or name..."
+                className="pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-400 w-64 transition-all"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="max-h-[500px] overflow-y-auto">
+            <table className="w-full text-left border-collapse">
+              <thead className="bg-slate-50/80 sticky top-0 backdrop-blur-sm z-10">
+                <tr>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase">ID</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase">Name</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase">Class</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase">Status</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase">Details</th>
+                  <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase text-right">Last Update</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {filteredList.map((item) => (
+                  <tr key={item.id} className="hover:bg-slate-50/50 transition-colors group">
+                    <td className="px-6 py-4 text-sm font-mono text-slate-500">{item.id}</td>
+                    <td className="px-6 py-4 text-sm font-bold text-slate-800">{item.name}</td>
+                    <td className="px-6 py-4 text-sm text-slate-600">{item.class}</td>
+                    <td className="px-6 py-4">
+                      <span className={`px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest ${
+                        item.status === 'Stored' ? 'bg-emerald-100 text-emerald-700' :
+                        item.status === 'Rented' ? 'bg-blue-100 text-blue-700' :
+                        'bg-red-100 text-red-700'
+                      }`}>
+                        {item.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-slate-500 italic max-w-xs truncate">
+                      {item.detail || '-'}
+                    </td>
+                    <td className="px-6 py-4 text-xs text-slate-400 text-right font-medium">
+                      {item.lastUpdated}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {filteredList.length === 0 && (
+              <div className="p-20 text-center text-slate-400 italic">
+                No matching records found.
+              </div>
+            )}
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+};
+
+export default App;
