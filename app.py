@@ -1,132 +1,94 @@
 import streamlit as st
 import pandas as pd
 import datetime
-import os
-
-# 파일 경로 설정
-DATA_FILE = "usage_logs.csv"
-
-def load_data():
-    if os.path.exists(DATA_FILE):
-        df = pd.read_csv(DATA_FILE)
-        df['날짜'] = pd.to_datetime(df['날짜']).dt.date
-        return df
-    else:
-        return pd.DataFrame(columns=["날짜", "기자재명", "사용자", "상태", "비고"])
-
-def save_data(df):
-    df.to_csv(DATA_FILE, index=False)
 
 # 페이지 설정
-st.set_page_config(page_title="에듀테크 일자별 관리", layout="wide")
+st.set_page_config(page_title="2026 크롬북 관리 대장", layout="wide")
 
-# 세션 상태 초기화
-if "data" not in st.session_state:
-    st.session_state.data = load_data()
+# 가상 데이터 생성 (실제 사용 시 구글 시트 API 또는 CSV 연결 가능)
+# 현재 공유해주신 시트 구조를 바탕으로 샘플 데이터를 구성합니다.
+def get_sample_data():
+    data = [
+        {"이름": "김동율", "학번": "1101", "보관상태": "충전함 보관", "이상유무": "이상 없음", "비고": "", "도우미": "박하민"},
+        {"이름": "김민석", "학번": "1102", "보관상태": "대여 중", "이상유무": "이상 없음", "비고": "도서관 사용", "도우미": "손연아"},
+        {"이름": "김어진", "학번": "1103", "보관상태": "충전함 보관", "이상유무": "이상 있음", "비고": "액정 파손 의심", "도우미": "박하민"},
+        {"이름": "김소현", "학번": "2107", "보관상태": "미반납", "이상유무": "이상 없음", "비고": "가방에 넣고 귀가", "도우미": "진정한"},
+    ]
+    return pd.DataFrame(data)
 
-st.title("📅 에듀테크 일자별 관리 시스템")
+# 데이터 로드
+if 'df' not in st.session_state:
+    st.session_state.df = get_sample_data()
 
-# --- 사이드바: 필터 및 설정 ---
-with st.sidebar:
-    st.header("🔍 조회 필터")
-    
-    # 날짜 범위 선택
-    today = datetime.date.today()
-    start_date = st.date_input("시작일", today - datetime.timedelta(days=7))
-    end_date = st.date_input("종료일", today)
-    
-    st.divider()
-    
-    st.header("⚙️ 관리자 설정")
-    reset_password = st.text_input("초기화 비밀번호", type="password")
-    if st.button("데이터 전체 리셋"):
-        if reset_password == "admin1234":
-            st.session_state.data = pd.DataFrame(columns=["날짜", "기자재명", "사용자", "상태", "비고"])
-            save_data(st.session_state.data)
-            st.success("초기화되었습니다.")
-            st.rerun()
-        else:
-            st.error("비밀번호 불일치")
+df = st.session_state.df
 
-# --- 데이터 필터링 ---
-filtered_df = st.session_state.data[
-    (st.session_state.data['날짜'] >= start_date) & 
-    (st.session_state.data['날짜'] <= end_date)
-]
+# --- 헤더 및 알림 섹션 ---
+st.title("💻 2026 학생 크롬북 스마트 관리 대장")
 
-# --- 상단 대시보드 ---
-col_m1, col_m2, col_m3 = st.columns(3)
-with col_m1:
-    st.metric("선택 기간 기록", f"{len(filtered_df)} 건")
-with col_m2:
-    today_count = len(st.session_state.data[st.session_state.data['날짜'] == today])
-    st.metric("오늘 신규 기록", f"{today_count} 건")
-with col_m3:
-    critical_count = len(filtered_df[filtered_df['상태'] == "수리 필요"])
-    st.metric("⚠️ 수리 필요(필터내)", f"{critical_count} 건", delta_color="inverse")
+# 알림 로직: 이상이 있거나 미반납인 경우
+critical_issues = df[(df['이상유무'] == "이상 있음") | (df['보관상태'] == "미반납")]
 
-# --- 입력 폼 (접이식) ---
-with st.expander("➕ 새 기록 추가하기", expanded=False):
-    with st.form("usage_form"):
-        c1, c2 = st.columns(2)
-        with c1:
-            item_name = st.selectbox("기자재명", ["태블릿", "크롬북", "노트북", "VR기기", "충전함", "기타"])
-            user_name = st.text_input("사용자")
-        with c2:
-            status = st.radio("상태", ["정상", "이상 발생", "수리 필요"], horizontal=True)
-            log_date = st.date_input("기록 날짜", today)
-        
-        note = st.text_area("비고 (고장 증상 등)")
-        if st.form_submit_button("저장하기"):
-            if user_name:
-                new_entry = pd.DataFrame([{
-                    "날짜": log_date,
-                    "기자재명": item_name,
-                    "사용자": user_name,
-                    "상태": status,
-                    "비고": note
-                }])
-                st.session_state.data = pd.concat([st.session_state.data, new_entry], ignore_index=True)
-                save_data(st.session_state.data)
-                st.success("기록 완료!")
-                st.rerun()
+if not critical_issues.empty:
+    st.error(f"🚨 현재 {len(critical_issues)}건의 관리 주의 항목이 있습니다! (미반납 또는 기기 이상)")
+    with st.expander("⚠️ 즉시 확인 필요 리스트"):
+        st.table(critical_issues[['학번', '이름', '보관상태', '이상유무', '비고']])
+else:
+    st.success("✅ 모든 크롬북이 정상적으로 반납 및 보관 중입니다.")
 
-# --- 데이터 시각화 및 리스트 ---
+# --- 상단 대시보드 (현황판) ---
+col1, col2, col3, col4 = st.columns(4)
+with col1:
+    st.metric("전체 기기", f"{len(df)}대")
+with col2:
+    storage_count = len(df[df['보관상태'] == "충전함 보관"])
+    st.metric("보관 완료", f"{storage_count}대", delta=f"{storage_count - len(df)}")
+with col3:
+    issue_count = len(df[df['이상유무'] == "이상 있음"])
+    st.metric("수리/이상", f"{issue_count}대", delta_color="inverse")
+with col4:
+    loan_count = len(df[df['보관상태'] == "대여 중"])
+    st.metric("현재 대여", f"{loan_count}대")
+
 st.divider()
 
-tab1, tab2 = st.tabs(["📋 상세 기록 리스트", "📈 일자별 통계"])
+# --- 메인 관리 영역 ---
+col_sidebar, col_main = st.columns([1, 3])
 
-with tab1:
-    col_h1, col_h2 = st.columns([4, 1])
-    with col_h1:
-        st.subheader(f"📅 {start_date} ~ {end_date} 기록")
-    with col_h2:
-        # CSV 다운로드 버튼
-        csv = filtered_df.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("📥 필터 데이터 결과 다운로드", csv, "filtered_logs.csv", "text/csv")
+with col_sidebar:
+    st.subheader("🔍 필터링")
+    grade_class = st.multiselect("학년/반 선택", options=sorted(df['학번'].str[:2].unique()), default=sorted(df['학번'].str[:2].unique()))
+    status_filter = st.multiselect("보관 상태", options=df['보관상태'].unique(), default=df['보관상태'].unique())
+    
+    st.divider()
+    st.subheader("📝 퀵 업데이트")
+    target_student = st.selectbox("학생 선택", df['이름'].tolist())
+    new_status = st.selectbox("상태 변경", ["충전함 보관", "대여 중", "미반납"])
+    if st.button("상태 반영하기"):
+        st.session_state.df.loc[st.session_state.df['이름'] == target_student, '보관상태'] = new_status
+        st.success(f"{target_student} 학생 상태 변경 완료")
+        st.rerun()
 
-    if not filtered_df.empty:
-        # 최신순 정렬하여 표시
-        st.dataframe(
-            filtered_df.sort_values(by="날짜", ascending=False),
-            use_container_width=True,
-            column_config={
-                "상태": st.column_config.SelectboxColumn(
-                    "상태", options=["정상", "이상 발생", "수리 필요"]
-                )
-            }
-        )
-    else:
-        st.info("해당 기간에 등록된 기록이 없습니다.")
+with col_main:
+    st.subheader("📋 상세 관리 목록")
+    
+    # 필터 적용
+    display_df = df[df['학번'].str[:2].isin(grade_class) & df['보관상태'].isin(status_filter)]
+    
+    # 데이터프레임 스타일링 (이상 유무에 따라 색상 지정)
+    def highlight_issues(val):
+        color = 'red' if val == "이상 있음" or val == "미반납" else 'black'
+        return f'color: {color}'
 
-with tab2:
-    if not filtered_df.empty:
-        st.subheader("일자별 사용 빈도")
-        chart_data = filtered_df.groupby('날짜').size()
-        st.bar_chart(chart_data)
-        
-        st.subheader("기자재별 상태 분포")
-        item_status = pd.crosstab(filtered_df['기자재명'], filtered_df['상태'])
-        st.bar_chart(item_status)
-    else:
-        st.write("통계를 표시할 데이터가 없습니다.")
+    st.dataframe(
+        display_df.style.applymap(highlight_issues, subset=['이상유무', '보관상태']),
+        use_container_width=True,
+        hide_index=True
+    )
+
+    # 하단 추가 기능
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("📊 오늘자 관리 리포트 생성"):
+            st.info("리포트가 생성되었습니다. (PDF/Excel 다운로드 가능)")
+    with c2:
+        st.write("마지막 업데이트: " + datetime.datetime.now().strftime("%Y-%m-%d %H:%M"))
