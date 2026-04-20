@@ -1,114 +1,132 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+import datetime
 import os
-import streamlit.components.v1 as components
 
-# 1. 화면 구성 설정
-st.set_page_config(page_title="에듀테크 도우미", layout="wide", page_icon="🔔")
+# 파일 경로 설정
+DATA_FILE = "usage_logs.csv"
 
-# 데이터 저장용 파일 이름
-DB_FILE = "logs.csv"
-
-# --- 브라우저 알림 자바스크립트 함수 ---
-def send_notification(title, message):
-    # 브라우저 알림을 띄우는 JS 코드
-    js_code = f"""
-    <script>
-    function showNotification() {{
-        if (!("Notification" in window)) {{
-            console.log("이 브라우저는 알림을 지원하지 않습니다.");
-        }} else if (Notification.permission === "granted") {{
-            new Notification("{title}", {{ body: "{message}", icon: "https://cdn-icons-png.flaticon.com/512/564/564619.png" }});
-        }} else if (Notification.permission !== "denied") {{
-            Notification.requestPermission().then(permission => {{
-                if (permission === "granted") {{
-                    new Notification("{title}", {{ body: "{message}" }});
-                }}
-            }});
-        }}
-    }}
-    showNotification();
-    </script>
-    """
-    components.html(js_code, height=0)
-
-# 데이터 로드/저장 함수
 def load_data():
-    if os.path.exists(DB_FILE):
-        try:
-            return pd.read_csv(DB_FILE)
-        except:
-            return pd.DataFrame(columns=["날짜", "학반", "유형", "기기번호", "작성자", "내용"])
-    return pd.DataFrame(columns=["날짜", "학반", "유형", "기기번호", "작성자", "내용"])
+    if os.path.exists(DATA_FILE):
+        df = pd.read_csv(DATA_FILE)
+        df['날짜'] = pd.to_datetime(df['날짜']).dt.date
+        return df
+    else:
+        return pd.DataFrame(columns=["날짜", "기자재명", "사용자", "상태", "비고"])
 
 def save_data(df):
-    df.to_csv(DB_FILE, index=False, encoding='utf-8-sig')
+    df.to_csv(DATA_FILE, index=False)
 
-# --- UI 시작 ---
-st.title("🚀 에듀테크 스마트 도우미")
+# 페이지 설정
+st.set_page_config(page_title="에듀테크 일자별 관리", layout="wide")
 
-# 사이드바 메뉴
-menu = st.sidebar.selectbox("메뉴 선택", ["🏠 메인 화면", "🚨 고장 신고", "📊 누적 기록"])
+# 세션 상태 초기화
+if "data" not in st.session_state:
+    st.session_state.data = load_data()
 
-# 알림 권한 요청 버튼 (처음 한 번은 눌러줘야 함)
-if st.sidebar.button("🔔 알림 권한 허용하기"):
-    components.html("""
-    <script>
-        Notification.requestPermission().then(p => {
-            if(p==='granted') alert('알림 권한이 허용되었습니다!');
-            else alert('알림 권한이 거부되었거나 차단되었습니다. 브라우저 설정을 확인해주세요.');
-        });
-    </script>
-    """, height=0)
+st.title("📅 에듀테크 일자별 관리 시스템")
 
-df = load_data()
-
-if menu == "🏠 메인 화면":
-    st.subheader("📅 오늘 학반별 점검 현황")
-    classes = ["1-1", "1-2", "2-1", "2-2", "3-1", "3-2"]
-    cols = st.columns(len(classes))
+# --- 사이드바: 필터 및 설정 ---
+with st.sidebar:
+    st.header("🔍 조회 필터")
     
-    # 오늘 날짜 데이터만 필터링
-    today = datetime.now().strftime("%Y-%m-%d")
-    today_checks = df[(df['날짜'].str.contains(today)) & (df['유형'] == "정기점검")]
+    # 날짜 범위 선택
+    today = datetime.date.today()
+    start_date = st.date_input("시작일", today - datetime.timedelta(days=7))
+    end_date = st.date_input("종료일", today)
+    
+    st.divider()
+    
+    st.header("⚙️ 관리자 설정")
+    reset_password = st.text_input("초기화 비밀번호", type="password")
+    if st.button("데이터 전체 리셋"):
+        if reset_password == "admin1234":
+            st.session_state.data = pd.DataFrame(columns=["날짜", "기자재명", "사용자", "상태", "비고"])
+            save_data(st.session_state.data)
+            st.success("초기화되었습니다.")
+            st.rerun()
+        else:
+            st.error("비밀번호 불일치")
 
-    for i, cls in enumerate(classes):
-        with cols[i]:
-            is_done = cls in today_checks['학반'].values
-            if is_done:
-                st.success(f"**{cls}**\n\n완료")
-            else:
-                st.warning(f"**{cls}**\n\n미완료")
-                if st.button(f"확인", key=f"chk_{cls}"):
-                    name = "담당자" # 기본값 설정
-                    new_row = {"날짜": datetime.now().strftime("%Y-%m-%d %H:%M"), "학반": cls, "유형": "정기점검", "기기번호": "-", "작성자": name, "내용": "이상 없음"}
-                    df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-                    save_data(df)
-                    send_notification("✅ 점검 완료", f"{cls}반 점검이 완료되었습니다.")
-                    st.rerun()
+# --- 데이터 필터링 ---
+filtered_df = st.session_state.data[
+    (st.session_state.data['날짜'] >= start_date) & 
+    (st.session_state.data['날짜'] <= end_date)
+]
 
-elif menu == "🚨 고장 신고":
-    st.subheader("🚨 기기 고장 리포트")
-    with st.form("report_form"):
-        f_class = st.selectbox("학반", ["1-1", "1-2", "2-1", "2-2", "3-1", "3-2"])
-        f_num = st.number_input("기기 번호", min_value=1, max_value=40)
-        f_user = st.text_input("신고자 성함")
-        f_desc = st.text_area("증상 설명")
+# --- 상단 대시보드 ---
+col_m1, col_m2, col_m3 = st.columns(3)
+with col_m1:
+    st.metric("선택 기간 기록", f"{len(filtered_df)} 건")
+with col_m2:
+    today_count = len(st.session_state.data[st.session_state.data['날짜'] == today])
+    st.metric("오늘 신규 기록", f"{today_count} 건")
+with col_m3:
+    critical_count = len(filtered_df[filtered_df['상태'] == "수리 필요"])
+    st.metric("⚠️ 수리 필요(필터내)", f"{critical_count} 건", delta_color="inverse")
+
+# --- 입력 폼 (접이식) ---
+with st.expander("➕ 새 기록 추가하기", expanded=False):
+    with st.form("usage_form"):
+        c1, c2 = st.columns(2)
+        with c1:
+            item_name = st.selectbox("기자재명", ["태블릿", "크롬북", "노트북", "VR기기", "충전함", "기타"])
+            user_name = st.text_input("사용자")
+        with c2:
+            status = st.radio("상태", ["정상", "이상 발생", "수리 필요"], horizontal=True)
+            log_date = st.date_input("기록 날짜", today)
         
-        if st.form_submit_button("신고하기"):
-            if f_user and f_desc:
-                new_row = {"날짜": datetime.now().strftime("%Y-%m-%d %H:%M"), "학반": f_class, "유형": "고장신고", "기기번호": f_num, "작성자": f_user, "내용": f_desc}
-                df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-                save_data(df)
-                
-                # 📢 신고 완료 시 브라우저 알림 전송!
-                send_notification("🚨 고장 신고 접수!", f"[{f_class}] {f_num}번 기기: {f_desc}")
-                
-                st.success("고장 리포트가 전송되었습니다.")
-            else:
-                st.error("이름과 내용을 입력해주세요.")
+        note = st.text_area("비고 (고장 증상 등)")
+        if st.form_submit_button("저장하기"):
+            if user_name:
+                new_entry = pd.DataFrame([{
+                    "날짜": log_date,
+                    "기자재명": item_name,
+                    "사용자": user_name,
+                    "상태": status,
+                    "비고": note
+                }])
+                st.session_state.data = pd.concat([st.session_state.data, new_entry], ignore_index=True)
+                save_data(st.session_state.data)
+                st.success("기록 완료!")
+                st.rerun()
 
-elif menu == "📊 누적 기록":
-    st.subheader("📊 전체 관리 기록")
-    st.dataframe(df.sort_values("날짜", ascending=False), use_container_width=True)
+# --- 데이터 시각화 및 리스트 ---
+st.divider()
+
+tab1, tab2 = st.tabs(["📋 상세 기록 리스트", "📈 일자별 통계"])
+
+with tab1:
+    col_h1, col_h2 = st.columns([4, 1])
+    with col_h1:
+        st.subheader(f"📅 {start_date} ~ {end_date} 기록")
+    with col_h2:
+        # CSV 다운로드 버튼
+        csv = filtered_df.to_csv(index=False).encode('utf-8-sig')
+        st.download_button("📥 필터 데이터 결과 다운로드", csv, "filtered_logs.csv", "text/csv")
+
+    if not filtered_df.empty:
+        # 최신순 정렬하여 표시
+        st.dataframe(
+            filtered_df.sort_values(by="날짜", ascending=False),
+            use_container_width=True,
+            column_config={
+                "상태": st.column_config.SelectboxColumn(
+                    "상태", options=["정상", "이상 발생", "수리 필요"]
+                )
+            }
+        )
+    else:
+        st.info("해당 기간에 등록된 기록이 없습니다.")
+
+with tab2:
+    if not filtered_df.empty:
+        st.subheader("일자별 사용 빈도")
+        chart_data = filtered_df.groupby('날짜').size()
+        st.bar_chart(chart_data)
+        
+        st.subheader("기자재별 상태 분포")
+        item_status = pd.crosstab(filtered_df['기자재명'], filtered_df['상태'])
+        st.bar_chart(item_status)
+    else:
+        st.write("통계를 표시할 데이터가 없습니다.")
