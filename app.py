@@ -29,54 +29,81 @@ st.markdown("""
 
 DB_FILE = "chromebook_master_db_v16.csv"
 
-# [데이터 로드] 
+# [데이터 로드]
 def load_data():
     if os.path.exists(DB_FILE):
         try:
             return pd.read_csv(DB_FILE, dtype={'학번': str}).fillna("")
         except: pass
-    return pd.DataFrame() # 실제 사용시에는 STUDENT_LIST 로직이 여기 포함되어야 합니다.
+    return pd.DataFrame()
 
 if 'df' not in st.session_state:
     st.session_state.df = load_data()
 if 'filter_status' not in st.session_state:
     st.session_state.filter_status = "전체"
 
-# --- 2. 사이드바 (관리자 모드 및 제어 기능) ---
-CLASSES = sorted(list(set(st.session_state.df['학급']))) if not st.session_state.df.empty else []
+# --- 2. 사이드바 (모든 입력창 집중 배치) ---
+df = st.session_state.df
+CLASSES = sorted(list(set(df['학급']))) if not df.empty else []
 
 with st.sidebar:
-    st.header("⚙️ 접속 모드")
+    st.header("⚙️ 접속 및 관리")
     is_admin = st.checkbox("교사용 관리자 모드")
     
     if is_admin:
-        st.info("💡 관리자 권한으로 접속 중")
-        st.subheader("🔔 실시간 알림")
-        if st.button("브라우저 알림 활성화", use_container_width=True):
+        st.subheader("🔔 교사 알림")
+        if st.button("알림 활성화", use_container_width=True):
             st.components.v1.html("<script>window.parent.requestPermission();</script>", height=0)
         
-        st.divider()
-        st.subheader("🚨 데이터 관리")
-        confirm_reset = st.checkbox("전체 기록 초기화 승인")
-        if st.button("🔥 전교생 기록 리셋", use_container_width=True, disabled=not confirm_reset):
+        st.subheader("🚨 데이터 초기화")
+        confirm_reset = st.checkbox("리셋 승인")
+        if st.button("🔥 전교생 기록 초기화", use_container_width=True, disabled=not confirm_reset):
             st.session_state.df['상태'] = "이상 없음"
             st.session_state.df['특이사항'] = ""
             st.session_state.df['최종수정'] = datetime.now().strftime("%Y-%m-%d")
             st.session_state.df.to_csv(DB_FILE, index=False, encoding='utf-8-sig')
-            st.success("전체 데이터가 초기화되었습니다.")
             st.rerun()
             
-        st.divider()
-        st.subheader("📋 학급 일괄 처리")
-        admin_cls = st.selectbox("학급 선택", CLASSES, key="admin_cls_select")
-        if st.button(f"✨ {admin_cls} 전원 정상 처리", use_container_width=True):
+        st.subheader("📋 학급 일괄")
+        admin_cls = st.selectbox("일괄 처리 학급", CLASSES, key="admin_cls_side")
+        if st.button(f"✨ {admin_cls} 전원 정상", use_container_width=True):
             st.session_state.df.loc[st.session_state.df['학급'] == admin_cls, ['상태', '특이사항']] = ["이상 없음", ""]
             st.session_state.df.loc[st.session_state.df['학급'] == admin_cls, '최종수정'] = datetime.now().strftime("%Y-%m-%d")
             st.session_state.df.to_csv(DB_FILE, index=False, encoding='utf-8-sig')
-            st.success(f"{admin_cls} 학생들의 상태가 초기화되었습니다.")
             st.rerun()
-    else:
-        st.write("학생 또는 도우미는 오른쪽 화면에서 상태를 보고하세요.")
+    
+    st.divider()
+    st.header("🛠️ 기기 상태 보고")
+    if not df.empty:
+        # 사이드바에서 학급 및 학생 선택
+        active_cls = st.selectbox("우리 반 선택", CLASSES, key="side_cls_sel")
+        cls_df = df[df['학급'] == active_cls]
+        student_list = cls_df.apply(lambda x: f"{x['학번']} {x['이름']}", axis=1).tolist()
+        selected_student = st.selectbox("학생 선택", student_list, key="side_stu_sel")
+        
+        target_sid = selected_student.split(" ")[0]
+        row = df[df['학번'] == target_sid].iloc[0]
+        
+        st.caption(f"현재: {row['상태']} | {row['특이사항']}")
+        
+        with st.form("side_status_form"):
+            new_status = st.radio("변경 상태", ["이상 없음", "대여", "파손/점검", "분실"], 
+                                  index=["이상 없음", "대여", "파손/점검", "분실"].index(row['상태']))
+            
+            # 대여 시 가이드 문구 자동화
+            ph = "반납 예정일자를 입력하세요" if new_status == "대여" else "메모 입력"
+            new_note = st.text_input("특이사항/메모", value=row['특이사항'], placeholder=ph)
+            
+            if st.form_submit_button("상태 저장하기", use_container_width=True):
+                idx = df[df['학번'] == target_sid].index[0]
+                st.session_state.df.at[idx, '상태'] = new_status
+                st.session_state.df.at[idx, '특이사항'] = new_note
+                st.session_state.df.at[idx, '최종수정'] = datetime.now().strftime("%Y-%m-%d")
+                st.session_state.df.to_csv(DB_FILE, index=False, encoding='utf-8-sig')
+                
+                if new_status in ["파손/점검", "분실"]:
+                    st.components.v1.html(f"<script>window.parent.sendNotification('🚨 이상 보고', '{active_cls} {target_sid}: {new_status}');</script>", height=0)
+                st.rerun()
 
 # --- 3. 메인 화면 상단 (로고 + 타이틀) ---
 logo_path = "상북중로고.png"
@@ -89,26 +116,18 @@ with t_col1:
 with t_col2:
     st.markdown("<h1 style='margin-top:10px;'>상북중학교 크롬북 통합 현황판</h1>", unsafe_allow_html=True)
 
-# --- 4. 대시보드 (네모 박스 없는 디자인) ---
+# --- 4. 투명 대시보드 ---
 st.markdown("""
     <style>
     div.stButton > button {
-        border: none !important;
-        background-color: transparent !important;
-        box-shadow: none !important;
-        color: inherit !important;
-        transition: transform 0.2s;
-        width: 100% !important;
-        text-align: center;
+        border: none !important; background-color: transparent !important;
+        box-shadow: none !important; color: inherit !important;
+        transition: transform 0.2s; width: 100% !important; text-align: center;
     }
-    div.stButton > button:hover {
-        transform: scale(1.05);
-        color: #004080 !important;
-    }
+    div.stButton > button:hover { transform: scale(1.05); color: #004080 !important; }
     </style>
 """, unsafe_allow_html=True)
 
-df = st.session_state.df
 stats = {
     "전체": len(df), "정상": len(df[df['상태']=='이상 없음']), 
     "대여": len(df[df['상태']=='대여']), "파손": len(df[df['상태']=='파손/점검']), 
@@ -129,44 +148,7 @@ with m_cols[4]:
 
 st.divider()
 
-# --- 5. 개별 기기 상태 보고 ---
-st.subheader("🛠️ 기기 상태 업데이트")
-if not df.empty:
-    c1, c2, c3 = st.columns([1, 1, 2])
-    with c1:
-        active_cls = st.selectbox("우리 반 선택", CLASSES, key="active_cls_select")
-    with c2:
-        cls_df = df[df['학급'] == active_cls]
-        student_list = cls_df.apply(lambda x: f"{x['학번']} {x['이름']}", axis=1).tolist()
-        selected_student = st.selectbox("학생 선택", student_list)
-    with c3:
-        target_sid = selected_student.split(" ")[0]
-        row = df[df['학번'] == target_sid].iloc[0]
-        st.info(f"현재: **{row['상태']}** ({row['특이사항'] if row['특이사항'] else '특이사항 없음'})")
-
-    with st.form("status_form"):
-        f1, f2 = st.columns(2)
-        with f1:
-            new_status = st.radio("기기 상태", ["이상 없음", "대여", "파손/점검", "분실"], 
-                                  index=["이상 없음", "대여", "파손/점검", "분실"].index(row['상태']), horizontal=True)
-        with f2:
-            ph = "반납 예정일자를 입력하세요" if new_status == "대여" else "메모 입력"
-            new_note = st.text_input("특이사항/메모", value=row['특이사항'], placeholder=ph)
-            
-        if st.form_submit_button("상태 저장", use_container_width=True):
-            idx = df[df['학번'] == target_sid].index[0]
-            st.session_state.df.at[idx, '상태'] = new_status
-            st.session_state.df.at[idx, '특이사항'] = new_note
-            st.session_state.df.at[idx, '최종수정'] = datetime.now().strftime("%Y-%m-%d")
-            st.session_state.df.to_csv(DB_FILE, index=False, encoding='utf-8-sig')
-            
-            if new_status in ["파손/점검", "분실"]:
-                st.components.v1.html(f"<script>window.parent.sendNotification('🚨 이상 보고', '{active_cls} {target_sid}: {new_status}');</script>", height=0)
-            st.rerun()
-
-st.divider()
-
-# --- 6. 목록 표시 ---
+# --- 5. 목록 표시 (와이드 뷰) ---
 st.subheader(f"📍 목록 필터: {st.session_state.filter_status}")
 display_df = df if st.session_state.filter_status == "전체" else df[df['상태'] == st.session_state.filter_status]
 
