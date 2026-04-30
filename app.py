@@ -6,7 +6,6 @@ import os
 # --- 1. 페이지 설정 및 알림 JS ---
 st.set_page_config(page_title="상북중 크롬북 통합 관리", layout="wide")
 
-# 브라우저 알림 기능을 활성화하는 JavaScript (더 직접적인 호출 방식)
 st.markdown("""
     <script>
     window.requestPermission = function() {
@@ -15,12 +14,10 @@ st.markdown("""
         } else {
             Notification.requestPermission().then(function (permission) {
                 if (permission === "granted") {
-                    new Notification("알림 활성화 완료!", {
-                        body: "이제 기기 이상 상황 발생 시 실시간 알림을 보냅니다.",
+                    new Notification("관리자 알림 활성화 완료!", {
+                        body: "이제 학생들의 기기 이상 보고 시 실시간 알림이 전송됩니다.",
                         icon: 'https://cdn-icons-png.flaticon.com/512/564/564344.png'
                     });
-                } else {
-                    alert("알림 권한이 거부되었습니다. 주소창 옆 자물쇠 아이콘을 눌러 허용해 주세요.");
                 }
             });
         }
@@ -37,10 +34,10 @@ st.markdown("""
     </script>
 """, unsafe_allow_html=True)
 
-# 데이터베이스 파일명 (충돌 방지를 위해 v2 유지)
-DB_FILE = "chromebook_master_db_v2.csv"
+# 파일 충돌 방지를 위해 DB 파일명을 새롭게 지정 (v3)
+DB_FILE = "chromebook_master_db_v3.csv"
 
-# [데이터] 학생 명단 (학번: [이름, CEU번호])
+# [데이터] 학생 명단
 STUDENT_LIST = {
     "1101": ["김동율", "020"], "1102": ["김민석", "031"], "1103": ["김어진", "016"], "1104": ["김타냐", "008"], "1105": ["노아", "102"],
     "1106": ["박하민", "011"], "1107": ["손연아", "128"], "1108": ["양승호", "014"], "1109": ["원상현", "022"], "1110": ["윤소연", "033"],
@@ -70,20 +67,20 @@ STUDENT_LIST = {
     "3216": ["이해린", "115"], "3217": ["정혜빈", "082"], "3218": ["주승현", "100"], "3219": ["진채원", "099"], "3220": ["이온리", "121"]
 }
 
-def get_class_name(sid):
-    return f"{sid[0]}-{int(sid[1:]) % 100}" # 학번 체계에 맞게 수정
-
 def load_data():
     if os.path.exists(DB_FILE):
         try:
-            return pd.read_csv(DB_FILE, dtype={'학번': str})
+            df = pd.read_csv(DB_FILE, dtype={'학번': str})
+            # 기존 데이터에서 하이픈(-)이 있으면 제거하는 처리
+            df['특이사항'] = df['특이사항'].replace("-", "")
+            return df
         except:
             pass
     init_data = []
     for sid, info in STUDENT_LIST.items():
         init_data.append({
             "학번": sid, "이름": info[0], "기기번호": f"CEU{info[1]}",
-            "학급": f"{sid[0]}-{int(sid[1])}", "상태": "이상 없음", "특이사항": "-",
+            "학급": f"{sid[0]}-{int(sid[1])}", "상태": "이상 없음", "특이사항": "", # 하이픈 제거
             "최종수정": datetime.now().strftime("%Y-%m-%d %H:%M")
         })
     df = pd.DataFrame(init_data)
@@ -92,100 +89,88 @@ def load_data():
 
 if 'df' not in st.session_state:
     st.session_state.df = load_data()
-if 'filter_mode' not in st.session_state:
-    st.session_state.filter_mode = "전체"
 
 def save_to_file():
     st.session_state.df.to_csv(DB_FILE, index=False, encoding='utf-8-sig')
 
-# --- 2. 사이드바 ---
+# --- 2. 사이드바 (기능 분리) ---
 CLASSES = sorted(list(set(st.session_state.df['학급'])))
 
 with st.sidebar:
-    st.header("🏫 관리자 메뉴")
+    st.header("⚙️ 접속 모드")
+    is_admin = st.checkbox("교사용 관리자 모드")
     
-    # 알림 권한 요청 버튼
-    if st.button("🔔 알림 권한 요청 (최초 1회)", use_container_width=True):
-        st.components.v1.html("<script>window.parent.requestPermission();</script>", height=0)
-    
-    st.divider()
-    
-    # 학급 선택
-    active_cls = st.selectbox("관리할 학급 선택", CLASSES)
-    
-    # 요청하신 '전원 이상 없음' 버튼 (선택 바로 아래 위치)
-    if st.button(f"✨ {active_cls} 전원 이상 없음 처리", use_container_width=True):
-        st.session_state.df.loc[st.session_state.df['학급'] == active_cls, '상태'] = "이상 없음"
-        st.session_state.df.loc[st.session_state.df['학급'] == active_cls, '최종수정'] = datetime.now().strftime("%Y-%m-%d %H:%M")
-        save_to_file()
-        st.success(f"{active_cls} 학생들의 상태가 업데이트되었습니다.")
-        st.rerun()
+    if is_admin:
+        st.divider()
+        st.subheader("🔔 알림 설정")
+        if st.button("내 컴퓨터 알림 활성화", use_container_width=True):
+            st.components.v1.html("<script>window.parent.requestPermission();</script>", height=0)
+        
+        st.divider()
+        st.subheader("📋 빠른 관리")
+        active_cls = st.selectbox("학급 선택", CLASSES)
+        if st.button(f"✨ {active_cls} 전원 이상 없음 처리", use_container_width=True):
+            st.session_state.df.loc[st.session_state.df['학급'] == active_cls, '상태'] = "이상 없음"
+            st.session_state.df.loc[st.session_state.df['학급'] == active_cls, '특이사항'] = "" # 특이사항도 비움
+            st.session_state.df.loc[st.session_state.df['학급'] == active_cls, '최종수정'] = datetime.now().strftime("%Y-%m-%d %H:%M")
+            save_to_file()
+            st.success("업데이트 완료!")
+            st.rerun()
+    else:
+        st.divider()
+        st.info("학생용: 본인 학급의 기기 상태를 수정하세요.")
+        active_cls = st.selectbox("우리 반 선택", CLASSES)
 
     st.divider()
-    st.subheader("🛠️ 개별 정보 수정")
+    st.subheader("🛠️ 개별 상태 수정")
     cls_df = st.session_state.df[st.session_state.df['학급'] == active_cls]
     student_options = cls_df.apply(lambda x: f"{x['학번']} - {x['이름']}", axis=1).tolist()
     
     with st.form("edit_form"):
-        selected = st.selectbox("대상 학생", student_options)
+        selected = st.selectbox("학생 선택", student_options)
         target_sid = selected.split(" - ")[0]
         row = st.session_state.df[st.session_state.df['학번'] == target_sid].iloc[0]
         
-        new_status = st.radio("상태", ["이상 없음", "대여 중", "파손/점검", "분실"], 
+        new_status = st.radio("기기 상태", ["이상 없음", "대여 중", "파손/점검", "분실"], 
                              index=["이상 없음", "대여 중", "파손/점검", "분실"].index(row['상태']))
-        new_note = st.text_input("메모", value=row['특이사항'])
+        # 기본값 하이픈 제거
+        current_note = "" if row['특이사항'] == "-" else row['특이사항']
+        new_note = st.text_input("특이사항/메모", value=current_note)
         
-        if st.form_submit_button("상태 업데이트 및 알림"):
+        if st.form_submit_button("저장하기"):
             idx = st.session_state.df[st.session_state.df['학번'] == target_sid].index[0]
             st.session_state.df.at[idx, '상태'] = new_status
-            st.session_state.df.at[idx, '특이사항'] = new_note if new_note else "-"
+            st.session_state.df.at[idx, '특이사항'] = new_note
             st.session_state.df.at[idx, '최종수정'] = datetime.now().strftime("%Y-%m-%d %H:%M")
             save_to_file()
             
             if new_status in ["파손/점검", "분실"]:
                 st.components.v1.html(f"""
                     <script>
-                    window.parent.sendNotification("🚨 크롬북 이상 감지", "{active_cls} {row['이름']} 학생 기기: {new_status}");
+                    window.parent.sendNotification("🚨 크롬북 이상 보고됨", "{active_cls} {row['이름']}: {new_status}");
                     </script>
                 """, height=0)
+            
+            st.success(f"{row['이름']} 보고 완료!")
             st.rerun()
 
 # --- 3. 메인 화면 ---
 st.title("🛡️ 상북중 크롬북 통합 현황판")
 
-df = st.session_state.df
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("전체 기기", f"{len(df)}대")
-m2.metric("🟢 정상", f"{len(df[df['상태']=='이상 없음'])}대")
-m3.metric("🏠 대여중", f"{len(df[df['상태']=='대여 중'])}대")
-m4.metric("🚨 점검/분실", f"{len(df[df['상태'].isin(['파손/점검', '분실'])])}대")
-
-st.divider()
-
-# 필터 버튼
-b1, b2, b3, b4 = st.columns(4)
-if b1.button("전체 보기", use_container_width=True):
-    st.session_state.filter_mode = "전체"
-if b2.button("🟢 정상만", use_container_width=True):
-    st.session_state.filter_mode = "이상 없음"
-if b3.button("🏠 대여중만", use_container_width=True):
-    st.session_state.filter_mode = "대여 중"
-if b4.button("🚨 점검필요", use_container_width=True):
-    st.session_state.filter_mode = "점검필요"
-
-view_df = df.copy()
-if st.session_state.filter_mode == "이상 없음":
-    view_df = view_df[view_df['상태'] == "이상 없음"]
-elif st.session_state.filter_mode == "대여 중":
-    view_df = view_df[view_df['상태'] == "대여 중"]
-elif st.session_state.filter_mode == "점검필요":
-    view_df = view_df[view_df['상태'].isin(["파손/점검", "분실"])]
+if is_admin:
+    df = st.session_state.df
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("전체", f"{len(df)}대")
+    m2.metric("🟢 정상", f"{len(df[df['상태']=='이상 없음'])}대")
+    m3.metric("🏠 대여", f"{len(df[df['상태']=='대여 중'])}대")
+    m4.metric("🚨 이상", f"{len(df[df['상태'].isin(['파손/점검', '분실'])])}대")
+    st.divider()
 
 def style_status(row):
     color = ''
     if row['상태'] == "이상 없음": color = 'background-color: #f0fff4;'
     elif row['상태'] == "대여 중": color = 'background-color: #ebf8ff;'
-    elif row['상태'] in ["파손/점검", "분실"]: color = 'background-color: #fff5f5; font-weight: bold; color: red;'
+    elif row['상태'] in ["파손/점검", "분실"]: color = 'background-color: #fff5f5; color: red; font-weight: bold;'
     return [color] * len(row)
 
-st.dataframe(view_df.style.apply(style_status, axis=1), use_container_width=True, hide_index=True)
+st.dataframe(st.session_state.df.style.apply(style_status, axis=1), use_container_width=True, hide_index=True)
