@@ -3,23 +3,38 @@ import pandas as pd
 from datetime import datetime
 import os
 
-# --- 1. 페이지 설정 및 알림 JS ---
+# --- 1. 페이지 설정 및 실시간 알림 로직 (강화형) ---
 st.set_page_config(page_title="상북중 크롬북 통합 관리", layout="wide")
 
 st.markdown("""
     <script>
+    // 1. 알림 권한 요청 및 상태 알림
     window.requestPermission = function() {
         if (!("Notification" in window)) {
-            alert("이 브라우저는 알림을 지원하지 않습니다.");
-        } else {
-            Notification.requestPermission().then(function (permission) {
-                if (permission === "granted") { alert("알림 활성화 완료!"); }
-            });
+            alert("이 브라우저는 알림을 지원하지 않습니다. 크롬 브라우저를 권장합니다.");
+            return;
         }
+        Notification.requestPermission().then(function (permission) {
+            if (permission === "granted") {
+                alert("✅ 알림 허용 완료! 이제 기기 이상 시 알림이 옵니다.");
+                new Notification("상북중 크롬북 관리", { body: "알림 서비스가 활성화되었습니다." });
+            } else {
+                alert("❌ 알림 권한이 거부되었습니다. 주소창 왼쪽 '자물쇠' 아이콘을 눌러 알림을 허용해주세요.");
+            }
+        });
     }
+
+    // 2. 알림 전송 함수 (지연 및 오류 방지 로직)
     window.sendNotification = function(title, body) {
         if (Notification.permission === "granted") {
-            new Notification(title, { body: body, icon: 'https://cdn-icons-png.flaticon.com/512/564/564344.png' });
+            const n = new Notification(title, { 
+                body: body, 
+                icon: 'https://cdn-icons-png.flaticon.com/512/564/564344.png' 
+            });
+            // 알림 클릭 시 창으로 이동
+            n.onclick = function() { window.focus(); };
+        } else {
+            console.warn("알림 권한이 없습니다.");
         }
     }
     </script>
@@ -27,31 +42,35 @@ st.markdown("""
 
 DB_FILE = "chromebook_master_db_v16.csv"
 
-# [데이터 로드/생성]
+# 데이터 로드 로직 (경민 선생님의 STUDENT_LIST 데이터 유지)
 def load_data():
-    # 실제 명단 (STUDENT_LIST) 데이터는 기존 코드를 유지하세요.
     if os.path.exists(DB_FILE):
         return pd.read_csv(DB_FILE, dtype={'학번': str}).fillna("")
-    return pd.DataFrame() # 파일 없을 시 초기 데이터 생성 로직 생략(기존 코드 유지)
+    return pd.DataFrame()
 
 if 'df' not in st.session_state:
     st.session_state.df = load_data()
 if 'filter_status' not in st.session_state:
     st.session_state.filter_status = "전체"
 
-# --- 2. 사이드바 (기기 상태 보고) ---
+# --- 2. 사이드바 (핵심 제어창) ---
 df = st.session_state.df
 CLASSES = sorted(list(set(df['학급']))) if not df.empty else []
 
 with st.sidebar:
-    st.header("⚙️ 관리 및 보고")
+    st.header("⚙️ 관리자/학생 설정")
     is_admin = st.checkbox("교사용 관리자 모드")
     
     if is_admin:
-        if st.button("🔔 알림 활성화", use_container_width=True):
+        st.subheader("🔔 교사 알림")
+        # 관리자 PC에서 이 버튼을 눌러야 '이 브라우저'에 알림이 옵니다.
+        if st.button("🔔 알림 수신 활성화 (필수)", use_container_width=True):
             st.components.v1.html("<script>window.parent.requestPermission();</script>", height=0)
+        
+        st.divider()
+        st.subheader("🚨 기록 초기화")
         confirm_reset = st.checkbox("리셋 승인")
-        if st.button("🔥 전교생 기록 초기화", use_container_width=True, disabled=not confirm_reset):
+        if st.button("전체 초기화 실행", use_container_width=True, disabled=not confirm_reset):
             st.session_state.df['상태'] = "이상 없음"
             st.session_state.df['특이사항'] = ""
             st.session_state.df.to_csv(DB_FILE, index=False, encoding='utf-8-sig')
@@ -63,9 +82,8 @@ with st.sidebar:
             st.session_state.df.to_csv(DB_FILE, index=False, encoding='utf-8-sig'); st.rerun()
 
     st.divider()
+    # 기기 보고 폼
     if is_admin: active_cls = st.selectbox("보고 학급", CLASSES, key="admin_cls")
-    
-    # 개별 보고 폼
     cls_df = st.session_state.df[st.session_state.df['학급'] == active_cls]
     stu_list = cls_df.apply(lambda x: f"{x['학번']} {x['이름']}", axis=1).tolist()
     sel_stu = st.selectbox("학생 선택", stu_list)
@@ -82,32 +100,35 @@ with st.sidebar:
             idx = st.session_state.df[st.session_state.df['학번'] == sid].index[0]
             st.session_state.df.at[idx, '상태'] = new_stat
             st.session_state.df.at[idx, '특이사항'] = new_note
-            st.session_state.df.at[idx, '최종수정'] = datetime.now().strftime("%Y-%m-%d")
+            st.session_state.df.at[idx, '최종수정'] = datetime.now().strftime("%Y-%m-%d %H:%M")
             st.session_state.df.to_csv(DB_FILE, index=False, encoding='utf-8-sig')
-            if new_stat in ["파손/점검", "분실"]:
-                st.components.v1.html(f"<script>window.parent.sendNotification('🚨 이상 보고', '{active_cls} {sid}: {new_stat}');</script>", height=0)
-            st.rerun()
+            
+            # 파손/분실 시 알림 전송
+            if new_status in ["파손/점검", "분실"]:
+                alert_msg = f"{active_cls} {sid} {row['이름']} 학생 기기 {new_status} 보고됨"
+                st.components.v1.html(f"""
+                    <script>
+                    window.parent.sendNotification('🚨 크롬북 이상 발생', '{alert_msg}');
+                    setTimeout(function(){{ window.parent.location.reload(); }}, 300);
+                    </script>
+                """, height=0)
+            else:
+                st.rerun()
 
 # --- 3. 메인 화면 ---
+# (로고 및 대시보드 버튼 디자인은 기존의 깔끔한 버전 유지)
 logo_path = "상북중로고.png"
-t_col1, t_col2 = st.columns([1, 8])
-with t_col1:
+col1, col2 = st.columns([1, 8])
+with col1:
     if os.path.exists(logo_path): st.image(logo_path, width=100)
-    else: st.title("🏫")
-with t_col2:
-    st.markdown("<h1 style='margin-top:10px;'>상북중학교 크롬북 통합 현황판</h1>", unsafe_allow_html=True)
+    else: st.write("🏫")
+with col2: st.title("상북중학교 크롬북 통합 현황판")
 
-# [디자인] 대시보드 버튼 투명화
-st.markdown("""<style>div.stButton > button { border: none !important; background-color: transparent !important; width: 100% !important; text-align: center; font-size: 20px !important; }</style>""", unsafe_allow_html=True)
+st.markdown("""<style>div.stButton > button { border: none !important; background-color: transparent !important; width: 100% !important; text-align: center; }</style>""", unsafe_allow_html=True)
 
-stats = {
-    "전체": len(df), "정상": len(df[df['상태']=='이상 없음']), 
-    "대여": len(df[df['상태']=='대여']), "파손": len(df[df['상태']=='파손/점검']), 
-    "분실": len(df[df['상태']=='분실'])
-}
-
+# 통계 계산
+stats = {"전체": len(df), "정상": len(df[df['상태']=='이상 없음']), "대여": len(df[df['상태']=='대여']), "파손": len(df[df['상태']=='파손/점검']), "분실": len(df[df['상태']=='분실'])}
 m_cols = st.columns(5)
-# 버튼 클릭 시 filter_status 업데이트 (불필요한 아이콘 제거하고 텍스트만)
 if m_cols[0].button(f"📄 전체\n{stats['전체']}대"): st.session_state.filter_status = "전체"
 if m_cols[1].button(f"🟢 정상\n{stats['정상']}대"): st.session_state.filter_status = "이상 없음"
 if m_cols[2].button(f"🏠 대여\n{stats['대여']}대"): st.session_state.filter_status = "대여"
@@ -116,15 +137,9 @@ if m_cols[4].button(f"🔍 분실\n{stats['분실']}대"): st.session_state.filt
 
 st.divider()
 
-# --- 4. 필터링된 목록 표시 (안내 텍스트 제거) ---
-if st.session_state.filter_status == "전체":
-    disp = st.session_state.df
-else:
-    disp = st.session_state.df[st.session_state.df['상태'] == st.session_state.filter_status]
-
-if disp.empty:
-    st.info("해당하는 데이터가 없습니다.")
-else:
+# 필터링 및 표 출력
+disp = df if st.session_state.filter_status == "전체" else df[df['상태'] == st.session_state.filter_status]
+if not disp.empty:
     def style_status(row):
         color = ''
         if row['상태'] == "이상 없음": color = 'background-color: #f0fff4;'
