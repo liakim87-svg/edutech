@@ -34,10 +34,9 @@ st.markdown("""
     </script>
 """, unsafe_allow_html=True)
 
-# 데이터 구조 변경(상태 명칭 변경)을 반영하기 위해 새 파일명(v6)을 사용합니다.
-DB_FILE = "chromebook_master_db_v6.csv"
+DB_FILE = "chromebook_master_db_v8.csv"
 
-# [데이터] 상북중 학생 명단
+# [데이터] 학생 명단
 STUDENT_LIST = {
     "1101": ["김동율", "020"], "1102": ["김민석", "031"], "1103": ["김어진", "016"], "1104": ["김타냐", "008"], "1105": ["노아", "102"],
     "1106": ["박하민", "011"], "1107": ["손연아", "128"], "1108": ["양승호", "014"], "1109": ["원상현", "022"], "1110": ["윤소연", "033"],
@@ -101,60 +100,68 @@ with st.sidebar:
     
     if is_admin:
         st.divider()
-        st.subheader("🔔 교사 컴퓨터 알림")
-        if st.button("알림 활성화 (최초 1회 필수)", use_container_width=True):
+        st.subheader("🔔 교사 알림 설정")
+        if st.button("알림 활성화", use_container_width=True):
             st.components.v1.html("<script>window.parent.requestPermission();</script>", height=0)
         
         st.divider()
-        st.subheader("📋 데이터 일괄 관리")
-        active_cls = st.selectbox("관리할 학급 선택", CLASSES)
-        if st.button(f"✨ {active_cls} 전원 이상 없음 처리", use_container_width=True):
-            st.session_state.df.loc[st.session_state.df['학급'] == active_cls, '상태'] = "이상 없음"
-            st.session_state.df.loc[st.session_state.df['학급'] == active_cls, '특이사항'] = ""
-            st.session_state.df.loc[st.session_state.df['학급'] == active_cls, '최종수정'] = datetime.now().strftime("%Y-%m-%d %H:%M")
-            save_to_file()
-            st.success(f"{active_cls} 처리 완료")
-            st.rerun()
-
-        st.divider()
-        st.subheader("🚨 전체 데이터 초기화")
-        confirm_reset = st.checkbox("정말 전체 초기화하시겠습니까?")
-        if st.button("🔥 전교생 이상없음 초기화", use_container_width=True, disabled=not confirm_reset):
+        st.subheader("🚨 전체 초기화")
+        confirm_reset = st.checkbox("전체 초기화 승인")
+        if st.button("🔥 전교생 데이터 리셋", use_container_width=True, disabled=not confirm_reset):
             st.session_state.df['상태'] = "이상 없음"
             st.session_state.df['특이사항'] = ""
             st.session_state.df['최종수정'] = datetime.now().strftime("%Y-%m-%d %H:%M")
             save_to_file()
-            st.warning("전교생 데이터가 초기화되었습니다.")
             st.rerun()
     else:
         st.divider()
-        st.info("학생용: 본인 학급을 선택하여 보고하세요.")
+        st.info("학생용: 우리 반 상태 보고")
         active_cls = st.selectbox("우리 반 선택", CLASSES)
+        
+        if st.button(f"✨ {active_cls} 전원 이상 없음 확인", use_container_width=True):
+            st.session_state.df.loc[st.session_state.df['학급'] == active_cls, '상태'] = "이상 없음"
+            st.session_state.df.loc[st.session_state.df['학급'] == active_cls, '특이사항'] = ""
+            st.session_state.df.loc[st.session_state.df['학급'] == active_cls, '최종수정'] = datetime.now().strftime("%Y-%m-%d %H:%M")
+            save_to_file()
+            st.rerun()
 
     st.divider()
     st.subheader("🛠️ 개별 상태 보고")
+    if is_admin:
+        active_cls = st.selectbox("조회할 학급 선택", CLASSES, key="admin_cls_sel")
+
     cls_df = st.session_state.df[st.session_state.df['학급'] == active_cls]
     student_options = cls_df.apply(lambda x: f"{x['학번']} - {x['이름']}", axis=1).tolist()
     
-    # [수정] 대여 중 -> 대여 로 변경된 상태 목록
     STATUS_LIST = ["이상 없음", "대여", "파손/점검", "분실"]
-    
     selected_student = st.selectbox("학생 선택", student_options)
     target_sid = selected_student.split(" - ")[0]
     row = st.session_state.df[st.session_state.df['학번'] == target_sid].iloc[0]
     
+    # --- 핵심 로직: 대여 시 안내 문구 자동 입력 ---
     with st.form("edit_form"):
         new_status = st.radio("기기 상태", STATUS_LIST, 
                              index=STATUS_LIST.index(row['상태']) if row['상태'] in STATUS_LIST else 0)
         
-        # [수정] '대여' 상태일 때만 placeholder에 안내 문구 표시
-        ph_text = "반납예정일자를 쓰시오" if new_status == "대여" else ""
-        new_note = st.text_input("특이사항/메모", value=row['특이사항'], placeholder=ph_text)
+        # [구현] '대여'를 선택하면 placeholder로 띄우는 것이 아니라, 
+        # 실제 값(value)을 조건부로 비워주거나 채워주는 방식입니다.
+        guide_msg = "반납예정일자를 쓰시오"
         
+        # 만약 대여를 골랐는데 메모가 비어있다면 가이드 문구를 기본값으로 설정
+        default_val = row['특이사항']
+        if new_status == "대여" and not default_val:
+            default_val = guide_msg
+            
+        new_note = st.text_input("특이사항/메모", value=default_val)
+        
+        # [추가] 사용자가 가이드 문구를 그대로 뒀거나 클릭해서 내용을 바꾸지 않았다면 저장 시 빈 값 처리
         if st.form_submit_button("저장 및 보고"):
             idx = st.session_state.df[st.session_state.df['학번'] == target_sid].index[0]
             st.session_state.df.at[idx, '상태'] = new_status
-            st.session_state.df.at[idx, '특이사항'] = new_note
+            
+            # 가이드 문구 자체를 저장하지 않도록 처리
+            final_note = new_note if new_note != guide_msg else ""
+            st.session_state.df.at[idx, '특이사항'] = final_note
             st.session_state.df.at[idx, '최종수정'] = datetime.now().strftime("%Y-%m-%d %H:%M")
             save_to_file()
             
@@ -164,7 +171,6 @@ with st.sidebar:
                     window.parent.sendNotification("🚨 크롬북 이상 보고됨", "{active_cls} {row['이름']}: {new_status}");
                     </script>
                 """, height=0)
-            st.success(f"{row['이름']} 보고 완료!")
             st.rerun()
 
 # --- 3. 메인 화면 ---
@@ -173,10 +179,10 @@ st.title("🛡️ 상북중 크롬북 통합 현황판")
 if is_admin:
     df = st.session_state.df
     m1, m2, m3, m4, m5 = st.columns(5)
-    m1.metric("전체 기기", f"{len(df)}대")
+    m1.metric("전체", f"{len(df)}대")
     m2.metric("🟢 정상", f"{len(df[df['상태']=='이상 없음'])}대")
     m3.metric("🏠 대여", f"{len(df[df['상태']=='대여'])}대")
-    m4.metric("🛠️ 파손/점검", f"{len(df[df['상태']=='파손/점검'])}대")
+    m4.metric("🛠️ 파손", f"{len(df[df['상태']=='파손/점검'])}대")
     m5.metric("🔍 분실", f"{len(df[df['상태']=='분실'])}대")
     st.divider()
 
