@@ -34,7 +34,6 @@ st.markdown("""
     </script>
 """, unsafe_allow_html=True)
 
-# 파일 충돌 방지를 위해 DB 파일명을 새롭게 지정 (v3)
 DB_FILE = "chromebook_master_db_v3.csv"
 
 # [데이터] 학생 명단
@@ -71,8 +70,7 @@ def load_data():
     if os.path.exists(DB_FILE):
         try:
             df = pd.read_csv(DB_FILE, dtype={'학번': str})
-            # 기존 데이터에서 하이픈(-)이 있으면 제거하는 처리
-            df['특이사항'] = df['특이사항'].replace("-", "")
+            df['특이사항'] = df['특이사항'].fillna("")
             return df
         except:
             pass
@@ -80,7 +78,7 @@ def load_data():
     for sid, info in STUDENT_LIST.items():
         init_data.append({
             "학번": sid, "이름": info[0], "기기번호": f"CEU{info[1]}",
-            "학급": f"{sid[0]}-{int(sid[1])}", "상태": "이상 없음", "특이사항": "", # 하이픈 제거
+            "학급": f"{sid[0]}-{int(sid[1])}", "상태": "이상 없음", "특이사항": "",
             "최종수정": datetime.now().strftime("%Y-%m-%d %H:%M")
         })
     df = pd.DataFrame(init_data)
@@ -93,7 +91,7 @@ if 'df' not in st.session_state:
 def save_to_file():
     st.session_state.df.to_csv(DB_FILE, index=False, encoding='utf-8-sig')
 
-# --- 2. 사이드바 (기능 분리) ---
+# --- 2. 사이드바 ---
 CLASSES = sorted(list(set(st.session_state.df['학급'])))
 
 with st.sidebar:
@@ -107,22 +105,35 @@ with st.sidebar:
             st.components.v1.html("<script>window.parent.requestPermission();</script>", height=0)
         
         st.divider()
-        st.subheader("📋 빠른 관리")
+        st.subheader("📋 데이터 일괄 관리")
         active_cls = st.selectbox("학급 선택", CLASSES)
         if st.button(f"✨ {active_cls} 전원 이상 없음 처리", use_container_width=True):
             st.session_state.df.loc[st.session_state.df['학급'] == active_cls, '상태'] = "이상 없음"
-            st.session_state.df.loc[st.session_state.df['학급'] == active_cls, '특이사항'] = "" # 특이사항도 비움
+            st.session_state.df.loc[st.session_state.df['학급'] == active_cls, '특이사항'] = ""
             st.session_state.df.loc[st.session_state.df['학급'] == active_cls, '최종수정'] = datetime.now().strftime("%Y-%m-%d %H:%M")
             save_to_file()
-            st.success("업데이트 완료!")
+            st.success(f"{active_cls} 업데이트 완료")
             st.rerun()
+
+        # 전체 초기화 버튼 (안전장치 포함)
+        st.divider()
+        st.subheader("🚨 전체 데이터 초기화")
+        confirm_reset = st.checkbox("정말 모든 데이터를 초기화하시겠습니까?")
+        if st.button("🔥 전교생 데이터 이상없음 초기화", use_container_width=True, disabled=not confirm_reset):
+            st.session_state.df['상태'] = "이상 없음"
+            st.session_state.df['특이사항'] = ""
+            st.session_state.df['최종수정'] = datetime.now().strftime("%Y-%m-%d %H:%M")
+            save_to_file()
+            st.warning("전교생 데이터가 초기화되었습니다.")
+            st.rerun()
+            
     else:
         st.divider()
-        st.info("학생용: 본인 학급의 기기 상태를 수정하세요.")
+        st.info("학생용: 본인 학급의 기기 상태를 보고하세요.")
         active_cls = st.selectbox("우리 반 선택", CLASSES)
 
     st.divider()
-    st.subheader("🛠️ 개별 상태 수정")
+    st.subheader("🛠️ 개별 상태 보고")
     cls_df = st.session_state.df[st.session_state.df['학급'] == active_cls]
     student_options = cls_df.apply(lambda x: f"{x['학번']} - {x['이름']}", axis=1).tolist()
     
@@ -133,11 +144,9 @@ with st.sidebar:
         
         new_status = st.radio("기기 상태", ["이상 없음", "대여 중", "파손/점검", "분실"], 
                              index=["이상 없음", "대여 중", "파손/점검", "분실"].index(row['상태']))
-        # 기본값 하이픈 제거
-        current_note = "" if row['특이사항'] == "-" else row['특이사항']
-        new_note = st.text_input("특이사항/메모", value=current_note)
+        new_note = st.text_input("특이사항/메모", value=row['특이사항'])
         
-        if st.form_submit_button("저장하기"):
+        if st.form_submit_button("저장 및 보고"):
             idx = st.session_state.df[st.session_state.df['학번'] == target_sid].index[0]
             st.session_state.df.at[idx, '상태'] = new_status
             st.session_state.df.at[idx, '특이사항'] = new_note
@@ -147,7 +156,7 @@ with st.sidebar:
             if new_status in ["파손/점검", "분실"]:
                 st.components.v1.html(f"""
                     <script>
-                    window.parent.sendNotification("🚨 크롬북 이상 보고됨", "{active_cls} {row['이름']}: {new_status}");
+                    window.parent.sendNotification("🚨 크롬북 이상 보고", "{active_cls} {row['이름']}: {new_status}");
                     </script>
                 """, height=0)
             
@@ -160,9 +169,9 @@ st.title("🛡️ 상북중 크롬북 통합 현황판")
 if is_admin:
     df = st.session_state.df
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("전체", f"{len(df)}대")
+    m1.metric("전체 기기", f"{len(df)}대")
     m2.metric("🟢 정상", f"{len(df[df['상태']=='이상 없음'])}대")
-    m3.metric("🏠 대여", f"{len(df[df['상태']=='대여 중'])}대")
+    m3.metric("🏠 대여중", f"{len(df[df['상태']=='대여 중'])}대")
     m4.metric("🚨 이상", f"{len(df[df['상태'].isin(['파손/점검', '분실'])])}대")
     st.divider()
 
