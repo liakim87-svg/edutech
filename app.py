@@ -14,10 +14,7 @@ st.markdown("""
         } else {
             Notification.requestPermission().then(function (permission) {
                 if (permission === "granted") {
-                    new Notification("관리자 알림 활성화 완료!", {
-                        body: "이제 기기 이상 보고 시 실시간 알림이 전송됩니다.",
-                        icon: 'https://cdn-icons-png.flaticon.com/512/564/564344.png'
-                    });
+                    new Notification("관리자 알림 활성화 완료!");
                 }
             });
         }
@@ -30,52 +27,71 @@ st.markdown("""
     </script>
 """, unsafe_allow_html=True)
 
+# 파일명 고정 (v16)
 DB_FILE = "chromebook_master_db_v16.csv"
 
-# [데이터 로드]
+# [데이터] 상북중 학생 명단
+STUDENT_LIST = {
+    "1101": ["김동율", "020"], "1102": ["김민석", "031"], "1103": ["김어진", "016"], "1104": ["김타냐", "008"], "1105": ["노아", "102"],
+    "1106": ["박하민", "011"], "1107": ["손연아", "128"], "1108": ["양승호", "014"], "1109": ["원상현", "022"], "1110": ["윤소연", "033"],
+    "1111": ["이성제", "007"], "1112": ["이정후", "026"], "1113": ["이하경", "124"], "1114": ["임태산", "030"], "1115": ["정채준", "034"],
+    "1116": ["주선우", "027"], "1117": ["최예빈", "017"], "1118": ["최재혁", "010"], "1119": ["허민서", "021"],
+    "1201": ["김가람", "018"], "1202": ["김들", "114"], "1203": ["김서후", "009"], "1204": ["김재빈", "029"], "1205": ["박마루", "112"],
+    "1206": ["박지은", "025"], "1207": ["배서윤", "013"], "1208": ["원세준", "003"], "1209": ["윤하정", "117"], "1210": ["이예원", "037"],
+    "1211": ["이준환", "036"], "1212": ["임시우", "052"], "1213": ["장주혁", "048"], "1214": ["정유진", "028"], "1215": ["정현석", "103"],
+    "1216": ["최아영", "032"], "1217": ["최은지", "070"], "1218": ["허동혁", "066"], "1219": ["황승미", "073"],
+    "2101": ["ANSHENGBIN", "062"], "2102": ["곽고은", "045"], "2103": ["김가림", "126"], "2104": ["김리안", "047"], "2105": ["김무성", "012"],
+    "2106": ["김미설", "038"], "2107": ["김소현", "023"], "2108": ["김태은", "087"], "2109": ["박예은", "051"], "2110": ["신민준", "078"],
+    "2111": ["양지연", "035"], "2112": ["오동건", "063"], "2113": ["윤채환", "080"], "2114": ["윤현정", "076"], "2115": ["이나원", "060"],
+    "2116": ["이대현", "001"], "2117": ["이아영", "042"], "2118": ["이정희", "054"], "2119": ["정가인", "122"], "2120": ["정민기", "069"],
+    "2121": ["진정한", "065"], "2122": ["허동진", "055"],
+    "2201": ["강주원", "050"], "2202": ["고대균", "071"], "2203": ["곽유찬", "043"], "2204": ["김건희", "058"], "2205": ["김경은", "130"],
+    "2206": ["김대우", "074"], "2207": ["김도형", "075"], "2208": ["김라온", "039"], "2209": ["김민성", "053"], "2210": ["김민현", "127"],
+    "2211": ["김시현", "059"], "2212": ["김지후", "040"], "2213": ["박소영", "072"], "2214": ["박태양", "068"], "2215": ["백재욱", "077"],
+    "2216": ["손예림", "061"], "2217": ["송다임", "079"], "2218": ["이지향", "064"], "2219": ["이혜진", "067"], "2220": ["이효아", "096"],
+    "2221": ["정다윤", "049"], "2222": ["정승현", "132"], "2223": ["정하린", "057"],
+    "3101": ["강보민", "101"], "3102": ["김가온", "088"], "3103": ["김미래", "105"], "3104": ["김민건", "104"], "3105": ["김민준", "002"],
+    "3106": ["김연호", "139"], "3107": ["김은화", "092"], "3108": ["남혁주", "081"], "3109": ["문시윤", "118"], "3110": ["박민체", "085"],
+    "3111": ["원영준", "111"], "3112": ["원태경", "110"], "3113": ["유도겸", "084"], "3114": ["이지우", "097"], "3115": ["이지윤", "120"],
+    "3116": ["전서원", "083"], "3117": ["정수연", "116"], "3118": ["정아단", "004"], "3119": ["진유빈", "137"],
+    "3201": ["KOONKOKKRUAD THANAWUT", "005"], "3202": ["공지연", "089"], "3203": ["김나로", "090"], "3204": ["김연서", "091"], "3205": ["김지호", "106"],
+    "3206": ["김채은", "107"], "3207": ["남세빈", "113"], "3208": ["문채혁", "086"], "3209": ["박수경", "093"], "3210": ["서다울", "108"],
+    "3211": ["서지원", "109"], "3212": ["송요찬", "094"], "3213": ["신하원", "134"], "3214": ["이규민", "095"], "3215": ["이은수", "136"],
+    "3216": ["이해린", "115"], "3217": ["정혜빈", "082"], "3218": ["주승현", "100"], "3219": ["진채원", "099"], "3220": ["이온리", "121"]
+}
+
 def load_data():
     if os.path.exists(DB_FILE):
         try:
             return pd.read_csv(DB_FILE, dtype={'학번': str}).fillna("")
         except: pass
-    # 초기 학생 명단 데이터 (선생님 데이터 유지)
     init_data = []
-    # (STUDENT_LIST 기반 생성 로직 동일)
-    return pd.DataFrame() 
+    for sid, info in STUDENT_LIST.items():
+        init_data.append({"학번": sid, "이름": info[0], "기기번호": f"CEU{info[1]}", "학급": f"{sid[0]}-{int(sid[1])}", "상태": "이상 없음", "특이사항": "", "최종수정": datetime.now().strftime("%Y-%m-%d %H:%M")})
+    df = pd.DataFrame(init_data)
+    df.to_csv(DB_FILE, index=False, encoding='utf-8-sig')
+    return df
 
 if 'df' not in st.session_state:
-    from __main__ import STUDENT_LIST # 기존 리스트 참조용
     st.session_state.df = load_data()
-    if st.session_state.df.empty: # 파일 없을시 생성
-        init_data = []
-        for sid, info in STUDENT_LIST.items():
-            init_data.append({"학번": sid, "이름": info[0], "기기번호": f"CEU{info[1]}", "학급": f"{sid[0]}-{int(sid[1])}", "상태": "이상 없음", "특이사항": "", "최종수정": datetime.now().strftime("%Y-%m-%d %H:%M")})
-        st.session_state.df = pd.DataFrame(init_data)
-        st.session_state.df.to_csv(DB_FILE, index=False, encoding='utf-8-sig')
-
 if 'filter_status' not in st.session_state:
     st.session_state.filter_status = "전체"
 
-# --- 2. 사이드바 (관리자/학생 기능 통합) ---
+# --- 2. 사이드바 구성 ---
 CLASSES = sorted(list(set(st.session_state.df['학급'])))
-
 with st.sidebar:
     st.header("⚙️ 접속 모드")
     is_admin = st.checkbox("교사용 관리자 모드")
-    
     if is_admin:
-        st.divider()
-        st.subheader("🔔 교사 알림")
+        st.subheader("🔔 교사용 알림")
         if st.button("알림 활성화", use_container_width=True):
             st.components.v1.html("<script>window.parent.requestPermission();</script>", height=0)
-        
         st.divider()
         st.subheader("🚨 리셋")
         confirm_reset = st.checkbox("전체 초기화 승인")
         if st.button("🔥 전교생 리셋", use_container_width=True, disabled=not confirm_reset):
             st.session_state.df['상태'] = "이상 없음"; st.session_state.df['특이사항'] = ""; st.session_state.df['최종수정'] = datetime.now().strftime("%Y-%m-%d %H:%M")
             st.session_state.df.to_csv(DB_FILE, index=False, encoding='utf-8-sig'); st.rerun()
-
         st.divider()
         st.subheader("📋 학급 일괄")
         active_cls = st.selectbox("학급 선택", CLASSES, key="admin_cls")
@@ -84,8 +100,6 @@ with st.sidebar:
             st.session_state.df.loc[st.session_state.df['학급'] == active_cls, '최종수정'] = datetime.now().strftime("%Y-%m-%d %H:%M")
             st.session_state.df.to_csv(DB_FILE, index=False, encoding='utf-8-sig'); st.rerun()
     else:
-        st.divider()
-        st.info("학생용 모드")
         active_cls = st.selectbox("우리 반 선택", CLASSES, key="student_cls")
         if st.button(f"✨ {active_cls} 전원 이상 없음 확인", use_container_width=True):
             st.session_state.df.loc[st.session_state.df['학급'] == active_cls, ['상태', '특이사항']] = ["이상 없음", ""]
@@ -99,9 +113,7 @@ with st.sidebar:
     selected_student = st.selectbox("학생 선택", student_options)
     target_sid = selected_student.split(" - ")[0]
     row = st.session_state.df[st.session_state.df['학번'] == target_sid].iloc[0]
-    
     new_status = st.radio("기기 상태", ["이상 없음", "대여", "파손/점검", "분실"], index=["이상 없음", "대여", "파손/점검", "분실"].index(row['상태']))
-
     with st.form("edit_form"):
         ph = "반납 예정일자를 쓰시오" if new_status == "대여" else ""
         new_note = st.text_input("특이사항/메모", value=row['특이사항'], placeholder=ph)
@@ -115,41 +127,47 @@ with st.sidebar:
                 st.components.v1.html(f"""<script>window.parent.sendNotification("🚨 크롬북 이상", "{active_cls} {row['이름']}: {new_status}");</script>""", height=0)
             st.rerun()
 
-# --- 3. 메인 화면: 버튼형 대형 현황판 ---
-st.title("🛡️ 상북중 크롬북 통합 현황판")
+# --- 3. 메인 화면: 로고 + 타이틀 + 대형 현황판 ---
+
+# [수정] 학교 마크와 타이틀을 나란히 배치
+st.markdown(f"""
+    <div style="display: flex; align-items: center; margin-bottom: 20px;">
+        <img src="https://raw.githubusercontent.com/liakim87-svg/edutech/main/sangbuk_logo.png" style="width: 80px; margin-right: 20px;">
+        <h1 style="margin: 0; font-size: 42px;">상북중학교 크롬북 통합 현황판</h1>
+    </div>
+""", unsafe_allow_html=True)
 
 df = st.session_state.df
-total = len(df); ok = len(df[df['상태']=='이상 없음']); rental = len(df[df['상태']=='대여']); repair = len(df[df['상태']=='파손/점검']); lost = len(df[df['상태']=='분실'])
+stats = {"전체": len(df), "이상 없음": len(df[df['상태']=='이상 없음']), "대여": len(df[df['상태']=='대여']), "파손/점검": len(df[df['상태']=='파손/점검']), "분실": len(df[df['상태']=='분실'])}
 
-# 스타일 정의
+# 버튼 디자인 (아이콘 강조형)
 st.markdown("""
     <style>
     div.stButton > button {
-        width: 100%; height: 120px; border-radius: 15px; border: 1px solid #ddd;
-        background-color: white; transition: all 0.3s;
+        height: 160px; border-radius: 20px; border: 2px solid #f0f2f6;
+        background-color: white; box-shadow: 2px 2px 12px rgba(0,0,0,0.08);
+        transition: all 0.3s;
     }
-    div.stButton > button:hover { border-color: #4CAF50; background-color: #f9f9f9; transform: translateY(-5px); }
-    .btn-text { font-size: 16px; color: #666; margin-bottom: 5px; }
-    .btn-num { font-size: 28px; font-weight: bold; color: #333; }
+    div.stButton > button:hover { border-color: #004080; transform: translateY(-5px); }
+    .icon-large { font-size: 50px; display: block; margin-bottom: 10px; }
+    .count-text { font-size: 26px; font-weight: bold; }
     </style>
 """, unsafe_allow_html=True)
 
 m_cols = st.columns(5)
 with m_cols[0]:
-    if st.button(f"📄 전체\n{total}대"): st.session_state.filter_status = "전체"
+    if st.button(f"📄\n전체\n{stats['전체']}대"): st.session_state.filter_status = "전체"
 with m_cols[1]:
-    if st.button(f"🟢 정상\n{ok}대"): st.session_state.filter_status = "이상 없음"
+    if st.button(f"🟢\n정상\n{stats['이상 없음']}대"): st.session_state.filter_status = "이상 없음"
 with m_cols[2]:
-    if st.button(f"🏠 대여\n{rental}대"): st.session_state.filter_status = "대여"
+    if st.button(f"🏠\n대여\n{stats['대여']}대"): st.session_state.filter_status = "대여"
 with m_cols[3]:
-    if st.button(f"🛠️ 파손\n{repair}대"): st.session_state.filter_status = "파손/점검"
+    if st.button(f"🛠️\n파손\n{stats['파손/점검']}대"): st.session_state.filter_status = "파손/점검"
 with m_cols[4]:
-    if st.button(f"🔍 분실\n{lost}대"): st.session_state.filter_status = "분실"
+    if st.button(f"🔍\n분실\n{stats['분실']}대"): st.session_state.filter_status = "분실"
 
 st.divider()
 st.subheader(f"📍 현재 보기: {st.session_state.filter_status}")
-
-# 필터링 및 표 출력
 display_df = df if st.session_state.filter_status == "전체" else df[df['상태'] == st.session_state.filter_status]
 
 def style_status(row):
