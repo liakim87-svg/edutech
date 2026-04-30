@@ -29,7 +29,6 @@ st.markdown("""
 
 DB_FILE = "chromebook_master_db_v16.csv"
 
-# [데이터 로드]
 def load_data():
     if os.path.exists(DB_FILE):
         try:
@@ -42,7 +41,7 @@ if 'df' not in st.session_state:
 if 'filter_status' not in st.session_state:
     st.session_state.filter_status = "전체"
 
-# --- 2. 사이드바 (모든 입력창 집중 배치) ---
+# --- 2. 사이드바 (입력 및 관리 집중) ---
 df = st.session_state.df
 CLASSES = sorted(list(set(df['학급']))) if not df.empty else []
 
@@ -75,7 +74,6 @@ with st.sidebar:
     st.divider()
     st.header("🛠️ 기기 상태 보고")
     if not df.empty:
-        # 사이드바에서 학급 및 학생 선택
         active_cls = st.selectbox("우리 반 선택", CLASSES, key="side_cls_sel")
         cls_df = df[df['학급'] == active_cls]
         student_list = cls_df.apply(lambda x: f"{x['학번']} {x['이름']}", axis=1).tolist()
@@ -84,17 +82,24 @@ with st.sidebar:
         target_sid = selected_student.split(" ")[0]
         row = df[df['학번'] == target_sid].iloc[0]
         
-        st.caption(f"현재: {row['상태']} | {row['특이사항']}")
+        st.caption(f"현재 상태: {row['상태']}")
         
+        # [핵심 수정] 폼 밖에서 라디오 버튼을 먼저 배치하여 실시간으로 placeholder 변경 감지
+        new_status = st.radio("변경 상태 선택", ["이상 없음", "대여", "파손/점검", "분실"], 
+                              index=["이상 없음", "대여", "파손/점검", "분실"].index(row['상태']), key="status_radio")
+        
+        # 상태에 따른 안내 문구 설정
+        if new_status == "대여":
+            guide_text = "반납 예정일자를 입력하세요"
+        elif new_status in ["파손/점검", "분실"]:
+            guide_text = "상세 사유를 입력하세요"
+        else:
+            guide_text = "특이사항이 있다면 입력하세요"
+
         with st.form("side_status_form"):
-            new_status = st.radio("변경 상태", ["이상 없음", "대여", "파손/점검", "분실"], 
-                                  index=["이상 없음", "대여", "파손/점검", "분실"].index(row['상태']))
+            new_note = st.text_input("특이사항/메모", value=row['특이사항'] if new_status == row['상태'] else "", placeholder=guide_text)
             
-            # 대여 시 가이드 문구 자동화
-            ph = "반납 예정일자를 입력하세요" if new_status == "대여" else "메모 입력"
-            new_note = st.text_input("특이사항/메모", value=row['특이사항'], placeholder=ph)
-            
-            if st.form_submit_button("상태 저장하기", use_container_width=True):
+            if st.form_submit_button("저장하기", use_container_width=True):
                 idx = df[df['학번'] == target_sid].index[0]
                 st.session_state.df.at[idx, '상태'] = new_status
                 st.session_state.df.at[idx, '특이사항'] = new_note
@@ -105,7 +110,7 @@ with st.sidebar:
                     st.components.v1.html(f"<script>window.parent.sendNotification('🚨 이상 보고', '{active_cls} {target_sid}: {new_status}');</script>", height=0)
                 st.rerun()
 
-# --- 3. 메인 화면 상단 (로고 + 타이틀) ---
+# --- 3. 메인 화면 (로고 + 타이틀 + 대시보드) ---
 logo_path = "상북중로고.png"
 t_col1, t_col2 = st.columns([1, 8])
 with t_col1:
@@ -116,7 +121,7 @@ with t_col1:
 with t_col2:
     st.markdown("<h1 style='margin-top:10px;'>상북중학교 크롬북 통합 현황판</h1>", unsafe_allow_html=True)
 
-# --- 4. 투명 대시보드 ---
+# [디자인] 대시보드 버튼 투명화
 st.markdown("""
     <style>
     div.stButton > button {
@@ -148,7 +153,7 @@ with m_cols[4]:
 
 st.divider()
 
-# --- 5. 목록 표시 (와이드 뷰) ---
+# --- 4. 목록 표시 ---
 st.subheader(f"📍 목록 필터: {st.session_state.filter_status}")
 display_df = df if st.session_state.filter_status == "전체" else df[df['상태'] == st.session_state.filter_status]
 
